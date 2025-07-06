@@ -1,0 +1,153 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity snake_basic is
+    Port (
+        clk      : in  STD_LOGIC;
+        reset    : in  STD_LOGIC;
+        enter    : in  STD_LOGIC;  -- Botón para empezar el juego
+        up       : in  STD_LOGIC;  -- Botón arriba
+        down     : in  STD_LOGIC;  -- Botón abajo
+        izqu     : in  STD_LOGIC;  -- Botón izquierda
+        derec    : in  STD_LOGIC;  -- Botón derecha
+        filas    : out STD_LOGIC_VECTOR(7 downto 0);
+        columnas : out STD_LOGIC_VECTOR(7 downto 0)
+    );
+end snake_basic;
+
+architecture Behavioral of snake_basic is
+    -- Tipo para la matriz 8x8
+    type matriz_8x8 is array(0 to 7) of STD_LOGIC_VECTOR(7 downto 0);
+    signal led_matrix : matriz_8x8 := (others => (others => '0'));
+    
+    -- Señales para el escaneo de la matriz LED
+    signal fila_index : integer range 0 to 7 := 0;
+    signal reg_filas  : STD_LOGIC_VECTOR(7 downto 0) := "00000001";
+    signal reg_columnas : STD_LOGIC_VECTOR(7 downto 0);
+    
+    -- Señales para el juego
+    type direction_type is (UP, DOWN, LEFT, RIGHT);
+    signal direction : direction_type := RIGHT;
+    signal next_direction : direction_type := RIGHT;
+    
+    type position is record
+        x : integer range 0 to 7;
+        y : integer range 0 to 7;
+    end record;
+    
+    signal head : position := (x => 3, y => 4);  -- Cabeza inicial
+    signal tail : position := (x => 2, y => 4);  -- Cola inicial
+    signal game_active : std_logic := '0';        -- Estado del juego
+    signal game_tick : std_logic;
+    signal tick_counter : integer range 0 to 5000000 := 0; -- Velocidad del juego
+    signal debounce_counter : integer range 0 to 100000 := 0; -- Para debounce de botones
+
+begin
+
+    -- Proceso para escanear la matriz LED
+    process(clk)
+    begin
+        if rising_edge(clk) then
+            -- Avanzar a la siguiente fila
+            if fila_index = 7 then
+                fila_index <= 0;
+            else
+                fila_index <= fila_index + 1;
+            end if;
+
+            -- Activar la fila correspondiente (solo un bit en 1)
+            reg_filas <= (others => '0');
+            reg_filas(fila_index) <= '1';
+
+            -- Obtener datos de columnas de esa fila
+            reg_columnas <= led_matrix(fila_index);
+        end if;
+    end process;
+
+    -- Proceso principal del juego
+    process(clk, reset)
+        variable new_head : position;
+    begin
+        if reset = '1' then
+            -- Reiniciar posiciones
+            head <= (x => 3, y => 4);
+            tail <= (x => 2, y => 4);
+            direction <= RIGHT;
+            next_direction <= RIGHT;
+            game_active <= '0';
+            led_matrix <= (others => (others => '0'));
+            
+        elsif rising_edge(clk) then
+            -- Lógica para empezar el juego con el botón Enter
+            if enter = '1' and game_active = '0' then
+                game_active <= '1';
+                head <= (x => 3, y => 4);
+                tail <= (x => 2, y => 4);
+                direction <= RIGHT;
+                next_direction <= RIGHT;
+            end if;
+            
+            -- Actualizar dirección según botones (con debounce básico)
+            if debounce_counter = 0 then
+                if up = '1' and direction /= DOWN then
+                    next_direction <= UP;
+                    debounce_counter <= 100000;
+                elsif down = '1' and direction /= UP then
+                    next_direction <= DOWN;
+                    debounce_counter <= 100000;
+                elsif left = '1' and direction /= RIGHT then
+                    next_direction <= LEFT;
+                    debounce_counter <= 100000;
+                elsif right = '1' and direction /= LEFT then
+                    next_direction <= RIGHT;
+                    debounce_counter <= 100000;
+                end if;
+            else
+                debounce_counter <= debounce_counter - 1;
+            end if;
+            
+            -- Contador para la velocidad del juego
+            if game_active = '1' then
+                if tick_counter = 1000000 then -- Ajustar este valor para cambiar la velocidad
+                    tick_counter <= 0;
+                    game_tick <= '1';
+                else
+                    tick_counter <= tick_counter + 1;
+                    game_tick <= '0';
+                end if;
+            end if;
+            
+            -- Lógica del movimiento en cada tick del juego
+            if game_active = '1' and game_tick = '1' then
+                direction <= next_direction;
+                
+                -- Calcular nueva posición de la cabeza
+                case direction is
+                    when UP =>
+                        new_head := (x => head.x, y => (head.y - 1) mod 8);
+                    when DOWN =>
+                        new_head := (x => head.x, y => (head.y + 1) mod 8);
+                    when LEFT =>
+                        new_head := (x => (head.x - 1) mod 8, y => head.y);
+                    when RIGHT =>
+                        new_head := (x => (head.x + 1) mod 8, y => head.y);
+                end case;
+                
+                -- Mover la serpiente
+                tail <= head;
+                head <= new_head;
+                
+                -- Actualizar matriz LED
+                led_matrix <= (others => (others => '0')); -- Limpiar matriz
+                led_matrix(head.y)(head.x) <= '1';          -- Dibujar cabeza
+                led_matrix(tail.y)(tail.x) <= '1';          -- Dibujar cola
+            end if;
+        end if;
+    end process;
+
+    -- Asignar salidas
+    filas <= reg_filas;
+    columnas <= reg_columnas;
+
+end Behavioral;
